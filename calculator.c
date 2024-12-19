@@ -4,10 +4,20 @@
 #include <sys/wait.h>
 #include <string.h>
 
-// Alt süreç başlatma fonksiyonu
-// Bu fonksiyon, verilen exec yoluna göre bir alt süreç başlatır,
-// stdin ve stdout'u ilgili pipe'lara yönlendirir.
-void start_process(const char *prog, int in_pipe[2], int out_pipe[2])
+/*
+   Bu kodda struct kullanılmadan her alt süreç için ayrı ayrı
+   in ve out pipe'ları tanımlanmıştır.
+
+   addition için: add_in, add_out
+   subtraction için: sub_in, sub_out
+   multiplication için: mul_in, mul_out
+   division için: div_in, div_out
+*/
+
+/* Belirtilen program için bir alt süreç başlatır.
+   in_pipe[0] child tarafından okunacak, out_pipe[1] child tarafından yazılacak.
+   Child'a in_fd ve out_fd argüman olarak verilir. */
+static void create_subprocess(const char *prog, int in_pipe[2], int out_pipe[2])
 {
     pid_t pid = fork();
     if (pid < 0)
@@ -15,153 +25,166 @@ void start_process(const char *prog, int in_pipe[2], int out_pipe[2])
         perror("fork");
         exit(EXIT_FAILURE);
     }
-    else if (pid == 0)
+    if (pid == 0)
     {
         // Child process
-        // stdin için: in_pipe'dan okunacak, dolayısıyla in_pipe[0] -> STDIN_FILENO
-        dup2(in_pipe[0], STDIN_FILENO);
-        close(in_pipe[1]);
-        close(in_pipe[0]);
+        close(in_pipe[1]);  // child okumak için in_pipe[0]'ı kullanacak, bu yüzden in_pipe[1] kapatılır
+        close(out_pipe[0]); // child yazmak için out_pipe[1]'i kullanır, out_pipe[0] kapatılır
 
-        // stdout için: out_pipe'a yazılacak, dolayısıyla out_pipe[1] -> STDOUT_FILENO
-        dup2(out_pipe[1], STDOUT_FILENO);
-        close(out_pipe[0]);
-        close(out_pipe[1]);
+        // in_fd ve out_fd değerleri string'e çevrilip exec'e argüman olarak verilir.
+        char in_fd_str[16], out_fd_str[16];
+        snprintf(in_fd_str, sizeof(in_fd_str), "%d", in_pipe[0]);
+        snprintf(out_fd_str, sizeof(out_fd_str), "%d", out_pipe[1]);
 
-        // Diğer tüm pipe uçlarını kapat
-        // (Ana program bunları kapatacak, bu süreçte gerek yok.)
-
-        execl(prog, prog, (char *)NULL);
+        execl(prog, prog, in_fd_str, out_fd_str, (char *)NULL);
         perror("execl");
         exit(EXIT_FAILURE);
     }
     else
     {
         // Parent process
-        // Bu pipe uçları parent'ta farklı amaçlarla kullanılacak
-        // Parent okumak için out_pipe[0]'ı kullanacak, yazmak için in_pipe[1]'i kullanacak
-        close(in_pipe[0]);  // parent içeriye yazacak, okuyucu uç kapansın
-        close(out_pipe[1]); // parent çıkışı okuyacak, yazıcı uç kapansın
+        // Parent yazmak için in_pipe[1]'i, okumak için out_pipe[0]'ı kullanacak
+        // Bu nedenle parent için in_pipe[0] ve out_pipe[1] gereksiz
+        close(in_pipe[0]);
+        close(out_pipe[1]);
     }
 }
 
-int main()
+/* Kullanıcıdan menü seçimi al */
+static int get_user_choice()
 {
-    int add_pipes_in[2];  // main -> addition
-    int add_pipes_out[2]; // addition -> main
+    printf("Calculator:\n");
+    printf("1 - addition\n");
+    printf("2 - subtraction\n");
+    printf("3 - multiplication\n");
+    printf("4 - division\n");
+    printf("5 - exit\n");
+    printf("Select operation: ");
 
-    int sub_pipes_in[2];  // main -> subtraction
-    int sub_pipes_out[2]; // subtraction -> main
+    int choice;
+    if (scanf("%d", &choice) != 1)
+    {
+        while (getchar() != '\n')
+            ; // tampon temizliği
+        return -1;
+    }
+    return choice;
+}
 
-    int mul_pipes_in[2];  // main -> multiplication
-    int mul_pipes_out[2]; // multiplication -> main
+/* Kullanıcıdan iki operand al */
+static int get_operands(double *a, double *b)
+{
+    printf("Enter first operand: ");
+    if (scanf("%lf", a) != 1)
+    {
+        while (getchar() != '\n')
+            ;
+        return 0;
+    }
+    printf("Enter second operand: ");
+    if (scanf("%lf", b) != 1)
+    {
+        while (getchar() != '\n')
+            ;
+        return 0;
+    }
+    return 1;
+}
 
-    int div_pipes_in[2];  // main -> division
-    int div_pipes_out[2]; // division -> main
+int main(void)
+{
+    int add_in[2], add_out[2];
+    int sub_in[2], sub_out[2];
+    int mul_in[2], mul_out[2];
+    int div_in[2], div_out[2];
 
-    if (pipe(add_pipes_in) == -1 || pipe(add_pipes_out) == -1 ||
-        pipe(sub_pipes_in) == -1 || pipe(sub_pipes_out) == -1 ||
-        pipe(mul_pipes_in) == -1 || pipe(mul_pipes_out) == -1 ||
-        pipe(div_pipes_in) == -1 || pipe(div_pipes_out) == -1)
+    if (pipe(add_in) == -1 || pipe(add_out) == -1 ||
+        pipe(sub_in) == -1 || pipe(sub_out) == -1 ||
+        pipe(mul_in) == -1 || pipe(mul_out) == -1 ||
+        pipe(div_in) == -1 || pipe(div_out) == -1)
     {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
 
-    // 4 alt süreci başlat
-    start_process("./addition", add_pipes_in, add_pipes_out);
-    start_process("./subtraction", sub_pipes_in, sub_pipes_out);
-    start_process("./multiplication", mul_pipes_in, mul_pipes_out);
-    start_process("./division", div_pipes_in, div_pipes_out);
+    create_subprocess("./addition", add_in, add_out);
+    create_subprocess("./subtraction", sub_in, sub_out);
+    create_subprocess("./multiplication", mul_in, mul_out);
+    create_subprocess("./division", div_in, div_out);
 
-    // Artık menü döngüsüne girelim
     while (1)
     {
-        printf("Calculator:\n");
-        printf("1 - addition\n");
-        printf("2 - subtraction\n");
-        printf("3 - multiplication\n");
-        printf("4 - division\n");
-        printf("5 - exit\n");
-        printf("Select operation: ");
-
-        int choice;
-        scanf("%d", &choice);
+        int choice = get_user_choice();
+        if (choice < 1 || choice > 5)
+        {
+            printf("Invalid choice!\n");
+            continue;
+        }
 
         if (choice == 5)
         {
-            // exit seçimi
-            // Tüm alt süreçlere "exit" mesajı gönderelim
-            char exit_msg[] = "exit\n";
-            write(add_pipes_in[1], exit_msg, strlen(exit_msg));
-            write(sub_pipes_in[1], exit_msg, strlen(exit_msg));
-            write(mul_pipes_in[1], exit_msg, strlen(exit_msg));
-            write(div_pipes_in[1], exit_msg, strlen(exit_msg));
+            // exit komutu
+            const char *exit_msg = "exit\n";
+            write(add_in[1], exit_msg, strlen(exit_msg));
+            write(sub_in[1], exit_msg, strlen(exit_msg));
+            write(mul_in[1], exit_msg, strlen(exit_msg));
+            write(div_in[1], exit_msg, strlen(exit_msg));
 
             // Alt süreçlerin bitmesini bekle
-            // 4 alt süreç var
             for (int i = 0; i < 4; i++)
-            {
                 wait(NULL);
-            }
 
-            printf("\nExiting.\n");
+            printf("Exiting.\n");
             break;
         }
-        else if (choice < 1 || choice > 5)
+
+        double a, b;
+        if (!get_operands(&a, &b))
         {
-            printf("Invalid choice!\n\n");
+            printf("Invalid input for operands!\n");
+            continue;
+        }
+
+        char request[128];
+        snprintf(request, sizeof(request), "%.2f %.2f\n", a, b);
+
+        int in_fd, out_fd;
+        switch (choice)
+        {
+        case 1:
+            in_fd = add_in[1];
+            out_fd = add_out[0];
+            break;
+        case 2:
+            in_fd = sub_in[1];
+            out_fd = sub_out[0];
+            break;
+        case 3:
+            in_fd = mul_in[1];
+            out_fd = mul_out[0];
+            break;
+        case 4:
+            in_fd = div_in[1];
+            out_fd = div_out[0];
+            break;
+        default:
+            continue; // burada default'a düşmez ama yine de
+        }
+
+        // Seçilen alt sürece operandları gönder
+        write(in_fd, request, strlen(request));
+
+        // Alt süreçten sonucu oku
+        char result_buf[128];
+        ssize_t n = read(out_fd, result_buf, sizeof(result_buf) - 1);
+        if (n > 0)
+        {
+            result_buf[n] = '\0';
+            printf("Result: %s\n", result_buf);
         }
         else
         {
-            double a, b;
-            printf("Enter first operand: ");
-            scanf("%lf", &a);
-            printf("Enter second operand: ");
-            scanf("%lf", &b);
-
-            char buffer[128];
-            snprintf(buffer, sizeof(buffer), "%.2f %.2f\n", a, b);
-
-            int in_fd, out_fd;
-            switch (choice)
-            {
-            case 1: // addition
-                in_fd = add_pipes_in[1];
-                out_fd = add_pipes_out[0];
-                break;
-            case 2: // subtraction
-                in_fd = sub_pipes_in[1];
-                out_fd = sub_pipes_out[0];
-                break;
-            case 3: // multiplication
-                in_fd = mul_pipes_in[1];
-                out_fd = mul_pipes_out[0];
-                break;
-            case 4: // division
-                in_fd = div_pipes_in[1];
-                out_fd = div_pipes_out[0];
-                break;
-            default:
-                printf("Invalid choice!\n\n");
-                continue;
-            }
-
-            // İlgili alt sürece verileri yolla
-            write(in_fd, buffer, strlen(buffer));
-
-            // Alt süreçten sonucu oku
-            char result_buf[128];
-            ssize_t n = read(out_fd, result_buf, sizeof(result_buf) - 1);
-            if (n > 0)
-            {
-                result_buf[n] = '\0';
-                printf("Result: %s\n", result_buf);
-            }
-            else
-            {
-                printf("No response from subprocess.\n");
-            }
+            printf("No response from subprocess.\n");
         }
     }
 

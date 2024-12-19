@@ -2,27 +2,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
-int main()
+int main(int argc, char *argv[])
 {
-    char line[128];
 
-    while (1)
+    int in_fd = atoi(argv[1]);
+    int out_fd = atoi(argv[2]);
+
+    char buffer[128];
+    for (;;)
     {
-        if (fgets(line, sizeof(line), stdin) == NULL)
-        {
+        ssize_t read_count = read(in_fd, buffer, sizeof(buffer) - 1);
+        if (read_count <= 0)
             break;
-        }
 
-        if (strncmp(line, "exit", 4) == 0)
-        {
+        buffer[read_count] = '\0';
+
+        if (strncmp(buffer, "exit", 4) == 0)
             break;
-        }
 
         double a, b;
-        if (sscanf(line, "%lf %lf", &a, &b) != 2)
+        if (sscanf(buffer, "%lf %lf", &a, &b) != 2)
         {
-            fprintf(stderr, "Invalid input\n");
+            const char *err_msg = "Invalid input\n";
+            write(out_fd, err_msg, strlen(err_msg));
             continue;
         }
 
@@ -31,19 +35,20 @@ int main()
         char res_str[64];
         snprintf(res_str, sizeof(res_str), "%.2f", result);
 
-        if (fork() == 0)
+        pid_t pid = fork();
+        if (pid == 0)
         {
             execl("./saver", "./saver", res_str, (char *)NULL);
             perror("execl saver");
             exit(EXIT_FAILURE);
         }
-        else
+        else if (pid > 0)
         {
             wait(NULL);
         }
 
-        printf("%.2f\n", result);
-        fflush(stdout);
+        snprintf(res_str, sizeof(res_str), "%.2f\n", result);
+        write(out_fd, res_str, strlen(res_str));
     }
 
     return 0;
