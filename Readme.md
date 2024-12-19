@@ -23,7 +23,7 @@ After creating the executable file, you can run the calculator by running the fo
 
 ### How to clean
 
-After creating the executable file, you can clean the project by running the following command in the terminal
+After using the executable file, you can clean the project by running the following command in the terminal
 
 ```bash
 make clean
