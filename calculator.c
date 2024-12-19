@@ -105,8 +105,12 @@ int main()
                 wait(NULL);
             }
 
-            printf("Exiting.\n");
+            printf("\nExiting.\n");
             break;
+        }
+        else if (choice < 1 || choice > 5)
+        {
+            printf("Invalid choice!\n\n");
         }
         else
         {
@@ -139,7 +143,7 @@ int main()
                 out_fd = div_pipes_out[0];
                 break;
             default:
-                printf("Invalid choice!\n");
+                printf("Invalid choice!\n\n");
                 continue;
             }
 
