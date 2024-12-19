@@ -1,7 +1,13 @@
+# craeted object files
 *.o
-saver
+
+# crated executables
+calculator
 addition
 subtraction
 multiplication
 division
+saver
+
+# crated directories
 .vscode/
